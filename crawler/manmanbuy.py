@@ -1,4 +1,4 @@
-"""慢慢买网站爬虫解析器"""
+"""慢慢买爬虫解析器 — GPU/SSD 搜索页解析"""
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -6,64 +6,92 @@ import json
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
     'Referer': 'https://www.manmanbuy.com/',
 }
 
-def search_product(keyword):
-    """根据关键词搜索产品，返回产品列表 [(name, price, url, image_url)]"""
-    search_url = f'https://search.manmanbuy.com/search.aspx?key={keyword}&PageIndex=1'
-    resp = requests.get(search_url, headers=HEADERS, timeout=15)
+SEARCH_URL = 'https://s.manmanbuy.com/pc/search/result'
+
+def search_product(keyword, max_items=10):
+    """在慢慢买搜索产品 [(name, price, url, img_url)]"""
+    resp = requests.get(SEARCH_URL, params={'keyword': keyword}, headers=HEADERS, timeout=15)
     resp.encoding = 'utf-8'
     soup = BeautifulSoup(resp.text, 'lxml')
 
     products = []
-    items = soup.select('.searchresult .item') or soup.select('.product-item') or soup.select('li[data-pid]')
 
-    for item in items[:10]:
-        name_el = item.select_one('.title a') or item.select_one('.p-name a') or item.select_one('a[title]')
-        price_el = item.select_one('.price') or item.select_one('.p-price') or item.select_one('em')
-        img_el = item.select_one('img')
-
-        name = name_el.get('title', '') or name_el.text.strip() if name_el else keyword
-        url = name_el.get('href', '') if name_el else ''
+    # 方法1: 从 img alt 属性提取产品名
+    imgs = soup.find_all('img', alt=True)
+    for img in imgs:
+        alt = img.get('alt', '').strip()
+        src = img.get('src', '') or img.get('data-src', '')
+        if not alt or len(alt) < 5:
+            continue
+        parent_a = img.find_parent('a')
+        url = parent_a.get('href', '') if parent_a else ''
         if url and not url.startswith('http'):
-            url = 'https:' + url if url.startswith('//') else 'https://www.manmanbuy.com/' + url
+            url = 'https:' + url if url.startswith('//') else ''
+        if src and not src.startswith('http'):
+            src = 'https:' + src if src.startswith('//') else ''
+        if len(products) < max_items:
+            products.append((alt, 0.0, url, src))
 
-        price_text = price_el.text.strip() if price_el else '0'
-        price_match = re.search(r'[\d.]+', price_text)
-        price = float(price_match.group()) if price_match else 0.0
+    # 方法2: 从页面文本提取价格
+    prices_text = re.findall(r'[¥￥](\d+\.?\d*)', resp.text)
 
-        img_url = img_el.get('src', '') or img_el.get('data-src', '') if img_el else ''
-        if img_url and not img_url.startswith('http'):
-            img_url = 'https:' + img_url if img_url.startswith('//') else ''
+    # 从 script 标签 JSON 中提取价格
+    scripts = soup.find_all('script')
+    for script in scripts:
+        if not script.string:
+            continue
+        # 找 JSON 中的价格
+        for match in re.finditer(r'"price"\s*:\s*(\d+\.?\d*)', script.string):
+            idx = sum(1 for p in products if p[1] == 0.0)
+            if idx < len(products):
+                products[idx] = (products[idx][0], float(match.group(1)), products[idx][2], products[idx][3])
 
-        if name and price > 0:
-            products.append((name, price, url, img_url))
+    # 补充未匹配的价格
+    for i, (name, price, url, img) in enumerate(products):
+        if price == 0.0 and i < len(prices_text):
+            products[i] = (name, float(prices_text[i]), url, img)
 
-    return products
+    # 过滤
+    valid = [(n, p, u, i) for n, p, u, i in products if p > 0]
+    if not valid and prices_text:
+        for i, (name, _, url, img) in enumerate(products[:len(prices_text)]):
+            if float(prices_text[i]) > 0:
+                valid.append((name, float(prices_text[i]), url, img))
+
+    return valid[:max_items]
+
 
 def get_price_history_from_page(product_url):
-    """从产品详情页提取价格趋势数据"""
+    """从产品详情页提取价格趋势"""
     resp = requests.get(product_url, headers=HEADERS, timeout=15)
     resp.encoding = 'utf-8'
     soup = BeautifulSoup(resp.text, 'lxml')
 
     price_data = []
-
     scripts = soup.find_all('script')
     for script in scripts:
-        if script.string and ('priceList' in script.string or 'priceHistory' in script.string or 'chartData' in script.string):
-            json_match = re.search(r'(?:priceList|priceHistory|chartData)\s*[:=]\s*(\[.*?\])', script.string, re.DOTALL)
-            if json_match:
-                try:
-                    raw_data = json.loads(json_match.group(1))
-                    for item in raw_data:
-                        if isinstance(item, dict):
-                            date_str = item.get('date') or item.get('time') or item.get('x')
-                            price_val = item.get('price') or item.get('y')
-                            if date_str and price_val:
-                                price_data.append((str(date_str), float(price_val)))
-                except (json.JSONDecodeError, ValueError):
-                    pass
+        if not script.string:
+            continue
+        for key in ['priceList', 'priceHistory', 'chartData', 'trendList']:
+            if key not in script.string:
+                continue
+            match = re.search(rf'{key}\s*[:=]\s*(\[.*?\])', script.string, re.DOTALL)
+            if not match:
+                continue
+            try:
+                raw = json.loads(match.group(1))
+                for item in raw:
+                    if isinstance(item, dict):
+                        d = item.get('date') or item.get('time') or item.get('x', '')
+                        p = item.get('price') or item.get('y', 0)
+                        if d and p:
+                            price_data.append((str(d), float(p)))
+            except (json.JSONDecodeError, ValueError):
+                pass
 
     return price_data

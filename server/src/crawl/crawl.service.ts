@@ -23,7 +23,9 @@ export class CrawlService {
       ? 'C:/Users/21138/AppData/Local/Programs/Python/Python314/python.exe'
       : 'python3';
 
-    const proc = spawn(python, [this.crawlerPath, keyword, category]);
+    const proc = spawn(python, [this.crawlerPath, keyword, category], {
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    });
     let stdout = '';
     let stderr = '';
 
