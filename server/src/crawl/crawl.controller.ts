@@ -6,8 +6,8 @@ export class CrawlController {
   constructor(private readonly service: CrawlService) {}
 
   @Post()
-  async startCrawl(@Body() body: { keyword: string; category: string }) {
-    const { taskId } = await this.service.startCrawl(body.keyword, body.category);
+  async startCrawl(@Body() body: { keyword: string; category: string; count?: number }) {
+    const { taskId } = await this.service.startCrawl(body.keyword, body.category, body.count || 10);
     return { taskId, status: 'running' };
   }
 

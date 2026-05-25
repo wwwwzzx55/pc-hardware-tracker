@@ -13,7 +13,7 @@ export class CrawlService {
   private tasks = new Map<string, CrawlTask>();
   private crawlerPath = join(__dirname, '..', '..', '..', 'crawler', 'main.py');
 
-  async startCrawl(keyword: string, category: string): Promise<{ taskId: string }> {
+  async startCrawl(keyword: string, category: string, count: number = 10): Promise<{ taskId: string }> {
     const taskId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
     const task: CrawlTask = { taskId, status: 'running', result: null };
@@ -23,7 +23,7 @@ export class CrawlService {
       ? 'C:/Users/21138/AppData/Local/Programs/Python/Python314/python.exe'
       : 'python3';
 
-    const proc = spawn(python, [this.crawlerPath, keyword, category], {
+    const proc = spawn(python, [this.crawlerPath, keyword, category, String(count)], {
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
     });
     let stdout = '';

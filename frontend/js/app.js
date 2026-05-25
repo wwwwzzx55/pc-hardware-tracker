@@ -102,10 +102,12 @@ async function startCrawl() {
   btn.disabled = true;
 
   try {
+    const count = parseInt(document.getElementById('crawl-count').value) || 10;
+
     const resp = await fetch(`${API}/crawl`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyword, category })
+      body: JSON.stringify({ keyword, category, count })
     });
     const { taskId } = await resp.json();
 

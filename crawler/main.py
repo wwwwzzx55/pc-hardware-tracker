@@ -30,10 +30,12 @@ def main():
     keyword = sys.argv[1]
     category_raw = sys.argv[2]
     category = CATEGORY_MAP.get(category_raw, 'CPU')
+    max_items = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+    max_items = max(10, min(max_items, 30))  # 限制10-30范围
 
-    # 中关村在线爬虫（按关键词过滤）
+    # 中关村在线爬虫
     try:
-        products = search_zol(keyword, category)
+        products = search_zol(keyword, category, max_items)
     except Exception as e:
         print(json.dumps({'success': False, 'error': f'网络请求失败: {e}'}))
         sys.exit(1)
