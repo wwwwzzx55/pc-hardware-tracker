@@ -24,6 +24,15 @@
       <button id="btn-crawl" onclick="startCrawl()">开始爬取</button>
     </div>
     <div id="crawl-status" class="status"></div>
+    <div class="history-box">
+      <div class="history-header">
+        <span>搜索记录</span>
+        <button class="clear-btn" onclick="clearHistory()">清空记录</button>
+      </div>
+      <div id="history-list" class="history-list">
+        <div class="history-empty">暂无搜索记录</div>
+      </div>
+    </div>
   </div>
 
   <!-- 中间：数据展示 -->

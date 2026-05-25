@@ -1,6 +1,52 @@
 const API = 'http://localhost:3000/api';
 let currentCategory = 'ALL';
 
+// ==================== 搜索记录 ====================
+const HISTORY_KEY = 'crawl_history';
+let searchHistory = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+
+function saveHistory(keyword, category, count) {
+  searchHistory.unshift({
+    keyword, category, count,
+    time: new Date().toLocaleString('zh-CN'),
+  });
+  if (searchHistory.length > 20) searchHistory = searchHistory.slice(0, 20);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(searchHistory));
+  renderHistory();
+}
+
+function clearHistory() {
+  if (confirm('确定清空所有搜索记录？')) {
+    searchHistory = [];
+    localStorage.setItem(HISTORY_KEY, '[]');
+    renderHistory();
+  }
+}
+
+function replaySearch(keyword, category) {
+  document.getElementById('keyword').value = keyword;
+  document.getElementById('category').value = category;
+  startCrawl();
+}
+
+function renderHistory() {
+  const el = document.getElementById('history-list');
+  if (searchHistory.length === 0) {
+    el.innerHTML = '<div class="history-empty">暂无搜索记录</div>';
+    return;
+  }
+  el.innerHTML = searchHistory.slice(0, 8).map(h => `
+    <div class="history-item" onclick="replaySearch('${h.keyword}', '${h.category}')" title="点击重新搜索">
+      <span class="hist-kw">${h.keyword}</span>
+      <span class="hist-cat">${h.category}</span>
+      <span class="hist-cnt">${h.count}条</span>
+      <span class="hist-time">${h.time}</span>
+    </div>
+  `).join('');
+}
+
+
+// ==================== 产品和爬取 ====================
 async function fetchJSON(url) {
   const resp = await fetch(url);
   return resp.json();
@@ -11,7 +57,7 @@ async function loadProducts(category) {
   const url = category === 'ALL' ? `${API}/products` : `${API}/products?category=${category}`;
   const data = await fetchJSON(url);
 
-  // 更新统计栏
+  // 统计
   const catCount = {};
   data.forEach(p => { catCount[p.category] = (catCount[p.category] || 0) + 1; });
   const statsHtml = Object.entries(catCount)
@@ -19,12 +65,12 @@ async function loadProducts(category) {
     .join(' ');
   document.getElementById('stats-bar').innerHTML = data.length
     ? `<strong>共 ${data.length} 个产品</strong> ${statsHtml}`
-    : '暂无数据，请先爬取';
+    : '暂无数据 — 请在上方输入关键词并点击"开始爬取"';
 
-  // 更新表格
+  // 表格
   const tbody = document.querySelector('#product-table tbody');
   if (data.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:#999">暂无数据，请在上方输入型号后点击"开始爬取"</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:#999">暂无数据，请先爬取</td></tr>';
   } else {
     tbody.innerHTML = data.map(p => `
       <tr onclick="loadChart(${p.id}, '${p.name.replace(/'/g, "\\'")}')">
@@ -68,16 +114,15 @@ async function startCrawl() {
       if (task && (task.status === 'completed' || task.status === 'failed')) {
         clearInterval(poll);
         btn.disabled = false;
+
         if (task.status === 'completed') {
           const count = task.result?.count || 0;
-          statusEl.textContent = `爬取完成！获取到 ${count} 条真实数据 (来源: ${task.result?.source || '中关村在线'})`;
+          statusEl.textContent = `爬取完成！获取到 ${count} 条数据 (来源: ${task.result?.source || '中关村在线'})`;
           statusEl.className = 'status success';
-          // 刷新列表，展示刚爬到的数据
+          saveHistory(keyword, category, count);
           await loadProducts('ALL');
-          // 如果有数据，自动展示第一个产品的价格趋势
           if (task.result?.products?.length > 0) {
-            const first = task.result.products[0];
-            loadChart(first.product_id, first.name);
+            loadChart(task.result.products[0].product_id, task.result.products[0].name);
           }
         } else {
           statusEl.textContent = `爬取失败: ${task.result?.error || '未知错误'}`;
@@ -93,12 +138,11 @@ async function startCrawl() {
 }
 
 function loadChart(productId, name) {
-  const dom = document.getElementById('price-chart');
-  dom.style.display = 'block';
   fetchJSON(`${API}/products/${productId}/price-history?days=90`).then(data => {
     drawChart(name, data);
   });
 }
 
-// 页面加载
+// ==================== 初始加载 ====================
 loadProducts('ALL');
+renderHistory();

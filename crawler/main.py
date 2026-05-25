@@ -31,9 +31,9 @@ def main():
     category_raw = sys.argv[2]
     category = CATEGORY_MAP.get(category_raw, 'CPU')
 
-    # 中关村在线爬虫
+    # 中关村在线爬虫（按关键词过滤）
     try:
-        products = search_zol(category)
+        products = search_zol(keyword, category)
     except Exception as e:
         print(json.dumps({'success': False, 'error': f'网络请求失败: {e}'}))
         sys.exit(1)
