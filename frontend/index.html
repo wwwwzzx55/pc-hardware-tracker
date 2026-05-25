@@ -9,38 +9,42 @@
 </head>
 <body>
 <div id="app">
+  <!-- 顶部：爬取入口 -->
   <div class="toolbar">
     <h1>电脑硬件价格追踪</h1>
     <div class="search-row">
-      <input type="text" id="keyword" placeholder="输入硬件型号，如 RTX 4070">
+      <input type="text" id="keyword" placeholder="输入硬件关键词，如 RTX 4070、i5 14600KF">
       <select id="category">
-        <option value="GPU">显卡</option>
         <option value="CPU">CPU</option>
+        <option value="GPU">显卡</option>
         <option value="RAM">内存</option>
         <option value="MB">主板</option>
         <option value="SSD">固态硬盘</option>
       </select>
       <button id="btn-crawl" onclick="startCrawl()">开始爬取</button>
-      <span id="crawl-status" class="status"></span>
     </div>
+    <div id="crawl-status" class="status"></div>
   </div>
 
+  <!-- 中间：数据展示 -->
   <div class="content">
-    <div class="filter-bar">
-      <button class="cat-btn active" onclick="filterCategory('ALL')">全部</button>
-      <button class="cat-btn" onclick="filterCategory('CPU')">CPU</button>
-      <button class="cat-btn" onclick="filterCategory('GPU')">GPU</button>
-      <button class="cat-btn" onclick="filterCategory('RAM')">内存</button>
-      <button class="cat-btn" onclick="filterCategory('MB')">主板</button>
-      <button class="cat-btn" onclick="filterCategory('SSD')">SSD</button>
+    <div class="panel-header">
+      <div id="stats-bar" class="stats-bar">暂无数据 — 请在上方输入关键词并点击"开始爬取"</div>
+      <div class="filter-bar">
+        <button class="cat-btn active" onclick="filterCategory('ALL')">全部</button>
+        <button class="cat-btn" onclick="filterCategory('CPU')">CPU</button>
+        <button class="cat-btn" onclick="filterCategory('GPU')">显卡</button>
+        <button class="cat-btn" onclick="filterCategory('RAM')">内存</button>
+        <button class="cat-btn" onclick="filterCategory('MB')">主板</button>
+        <button class="cat-btn" onclick="filterCategory('SSD')">SSD</button>
+      </div>
     </div>
-    <div id="stats-bar" class="stats-bar">暂无数据，请先爬取</div>
 
     <div class="data-panel">
       <div class="table-wrap">
         <table id="product-table">
           <thead>
-            <tr><th>名称</th><th>品类</th><th>最新价格</th><th>更新时间</th></tr>
+            <tr><th>产品名称</th><th>品类</th><th>最新价格</th><th>更新时间</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -51,16 +55,17 @@
     </div>
   </div>
 
+  <!-- 底部：AI助手 -->
   <div class="ai-panel">
-    <h3>AI 助手</h3>
+    <h3>AI 分析助手</h3>
     <div class="ai-modes">
       <button class="mode-btn active" onclick="setMode('query')">查价格</button>
-      <button class="mode-btn" onclick="setMode('predict')">趋势预测</button>
+      <button class="mode-btn" onclick="setMode('predict')">预测走势</button>
       <button class="mode-btn" onclick="setMode('report')">生成报告</button>
     </div>
     <div id="ai-chat" class="ai-chat"></div>
     <div class="ai-input">
-      <input type="text" id="ai-input" placeholder="输入问题..." onkeydown="if(event.key==='Enter')sendMessage()">
+      <input type="text" id="ai-input" placeholder="输入问题，如：RTX 4070 最近降价了吗？" onkeydown="if(event.key==='Enter')sendMessage()">
       <button onclick="sendMessage()">发送</button>
     </div>
   </div>
