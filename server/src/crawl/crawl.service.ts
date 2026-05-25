@@ -19,25 +19,31 @@ export class CrawlService {
     const task: CrawlTask = { taskId, status: 'running', result: null };
     this.tasks.set(taskId, task);
 
-    const python = process.platform === 'win32' ? 'python' : 'python3';
+    const python = process.platform === 'win32'
+      ? 'C:/Users/21138/AppData/Local/Programs/Python/Python314/python.exe'
+      : 'python3';
 
     const proc = spawn(python, [this.crawlerPath, keyword, category]);
     let stdout = '';
+    let stderr = '';
 
     proc.stdout.on('data', (data) => { stdout += data.toString(); });
-    proc.stderr.on('data', (data) => { stdout += data.toString(); });
+    proc.stderr.on('data', (data) => { stderr += data.toString(); });
 
     proc.on('error', (err) => {
-      task.result = { success: false, error: err.message };
-      task.status = 'failed';
+      if (!task.result) {
+        task.result = { success: false, error: `spawn失败: ${err.message}` };
+        task.status = 'failed';
+      }
     });
 
     proc.on('close', (code) => {
+      if (task.status === 'failed') return; // error 事件已处理，不覆盖
       try {
         task.result = JSON.parse(stdout.trim());
         task.status = task.result.success ? 'completed' : 'failed';
       } catch {
-        task.result = { success: false, error: stdout };
+        task.result = { success: false, error: stderr || stdout || '爬虫返回异常' };
         task.status = 'failed';
       }
     });
