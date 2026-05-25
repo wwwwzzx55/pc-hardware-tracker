@@ -79,9 +79,14 @@ def _parse_search_results(soup):
             if not href.startswith('http'):
                 href = 'https:' + href if href.startswith('//') else 'https://detail.zol.com.cn' + href
 
-            # 价格在li文本中: ¥1799
-            m = re.search(r'[¥￥](\d+)', li.text.strip())
-            price = float(m.group(1)) if m else 0.0
+            # 价格在li文本中: ¥1799 或 ¥2.44万
+            m = re.search(r'[¥￥](\d+\.?\d*)\s*(万)?', li.text.strip())
+            if m:
+                price = float(m.group(1))
+                if m.group(2) == '万':
+                    price *= 10000
+            else:
+                price = 0.0
 
             if price > 0 and name not in [p[0] for p in products]:
                 products.append((name, price, href, ''))
