@@ -11,18 +11,10 @@ HEADERS = {
     'Referer': 'https://detail.zol.com.cn/',
 }
 
-# ZOL子分类ID
-SUBCATE_IDS = {
-    'CPU': '28',
-    'GPU': '6',
-    'RAM': '3',
-    'MB': '5',
-    'SSD': '626',
-}
+SUBCATE_IDS = {'CPU': '28', 'GPU': '6', 'RAM': '3', 'MB': '5', 'SSD': '626'}
 
 SEARCH_URL = 'https://detail.zol.com.cn/index.php'
 
-# Cookie需要定期更新（浏览器登录ZOL后获取）
 COOKIE = {
     'ASP.NET_SessionId': '2cc10007c8f1e6cc68e92c4b105db4f2',
 }
@@ -39,55 +31,58 @@ def _request_with_retry(url, params, max_retries=2):
 
 
 def search_zol(keyword, category, max_items=10):
-    """搜索ZOL产品 [(name, price, url, img_url)]
-
-    使用ZOL搜索接口 + subcateId 精准过滤品类
-    """
+    """搜索ZOL产品 [(name, price, url, img_url)]"""
     subcate_id = SUBCATE_IDS.get(category)
     if not subcate_id:
         return []
 
-    resp = _request_with_retry(SEARCH_URL, {
-        'c': 'SearchList',
-        'subcateId': subcate_id,
-        'keyword': keyword,
-    })
-    if resp is None or resp.status_code != 200 or len(resp.text) < 500:
-        return []
+    products = []
+    page = 1
+    while len(products) < max_items:
+        resp = _request_with_retry(SEARCH_URL, {
+            'c': 'SearchList',
+            'subcateId': subcate_id,
+            'keyword': keyword,
+            'page': page,
+        })
+        if resp is None or resp.status_code != 200 or len(resp.text) < 500:
+            break
 
-    soup = BeautifulSoup(resp.text, 'lxml')
+        soup = BeautifulSoup(resp.text, 'lxml')
+        page_products = _parse_search_results(soup)
+        if not page_products:
+            break
 
-    # 提取价格: <b class="price-type">4799</b>
-    all_prices = []
-    for b in soup.select('.price-type'):
-        try:
-            m = re.search(r'(\d+)$', b.text.strip())
-            if m:
-                all_prices.append(float(m.group(1)))
-        except ValueError:
-            pass
+        products.extend(page_products)
+        page += 1
 
-    # 提取产品链接
-    links = soup.find_all('a', href=True)
-    product_links = []
-    for link in links:
-        href = link.get('href', '')
-        text = link.text.strip()
-        if '/index' in href and '.shtml' in href and text and len(text) > 3:
+        # 限制最多翻8页 (每页约4条)
+        if page > 8:
+            break
+
+    return products[:max_items]
+
+
+def _parse_search_results(soup):
+    """解析搜索结果页：<ul class='series_list'> > <li> 价格在 li 文本中"""
+    products = []
+    uls = soup.find_all('ul', class_='series_list')
+    for ul in uls:
+        for li in ul.find_all('li'):
+            link = li.find('a', href=re.compile(r'/index\d+\.shtml'))
+            if not link:
+                continue
+            name = link.text.strip()
+            if not name:
+                continue
+            href = link.get('href', '')
             if not href.startswith('http'):
                 href = 'https:' + href if href.startswith('//') else 'https://detail.zol.com.cn' + href
-            if href not in [h for _, h in product_links]:
-                product_links.append((text, href))
 
-    # 配对价格和产品
-    seen = set()
-    products = []
-    for i, (name, href) in enumerate(product_links):
-        if name in seen or len(products) >= max_items:
-            continue
-        seen.add(name)
-        price = all_prices[i] if i < len(all_prices) else 0.0
-        if price > 0:
-            products.append((name, price, href, ''))
+            # 价格在li文本中: ¥1799
+            m = re.search(r'[¥￥](\d+)', li.text.strip())
+            price = float(m.group(1)) if m else 0.0
 
+            if price > 0 and name not in [p[0] for p in products]:
+                products.append((name, price, href, ''))
     return products
