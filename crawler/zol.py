@@ -2,6 +2,7 @@
 import requests
 from bs4 import BeautifulSoup
 import re
+import time
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -18,6 +19,18 @@ CATEGORY_CONFIG = {
 }
 
 
+def _request_with_retry(url, max_retries=3):
+    """带重试的HTTP请求，处理DNS解析失败"""
+    for attempt in range(max_retries):
+        try:
+            return requests.get(url, headers=HEADERS, timeout=15)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(1)
+            else:
+                raise e
+
+
 def search_zol(category, max_items=10):
     """从ZOL抓取产品列表 [(name, price, url, img_url)]
 
@@ -28,10 +41,10 @@ def search_zol(category, max_items=10):
     if not cfg:
         return []
 
-    resp = requests.get(cfg['url'], headers=HEADERS, timeout=15)
+    resp = _request_with_retry(cfg['url'])
 
     # 检查是否有实际内容
-    if resp.status_code != 200 or len(resp.text) < 500:
+    if resp is None or resp.status_code != 200 or len(resp.text) < 500:
         return []
 
     soup = BeautifulSoup(resp.text, 'lxml')

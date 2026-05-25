@@ -32,7 +32,11 @@ def main():
     category = CATEGORY_MAP.get(category_raw, 'CPU')
 
     # 中关村在线爬虫
-    products = search_zol(category)
+    try:
+        products = search_zol(category)
+    except Exception as e:
+        print(json.dumps({'success': False, 'error': f'网络请求失败: {e}'}))
+        sys.exit(1)
 
     if not products:
         print(json.dumps({'success': False, 'error': f'未找到 {keyword}({category}) 相关产品，请换个关键词重试'}))
