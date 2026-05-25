@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电脑硬件价格追踪</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <div class="toolbar">
+    <h1>电脑硬件价格追踪</h1>
+    <div class="search-row">
+      <input type="text" id="keyword" placeholder="输入硬件型号，如 RTX 4070">
+      <select id="category">
+        <option value="GPU">显卡</option>
+        <option value="CPU">CPU</option>
+        <option value="RAM">内存</option>
+        <option value="MB">主板</option>
+        <option value="SSD">固态硬盘</option>
+      </select>
+      <button id="btn-crawl" onclick="startCrawl()">开始爬取</button>
+      <span id="crawl-status" class="status"></span>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="filter-bar">
+      <button class="cat-btn active" onclick="filterCategory('ALL')">全部</button>
+      <button class="cat-btn" onclick="filterCategory('CPU')">CPU</button>
+      <button class="cat-btn" onclick="filterCategory('GPU')">GPU</button>
+      <button class="cat-btn" onclick="filterCategory('RAM')">内存</button>
+      <button class="cat-btn" onclick="filterCategory('MB')">主板</button>
+      <button class="cat-btn" onclick="filterCategory('SSD')">SSD</button>
+    </div>
+
+    <div class="data-panel">
+      <div class="table-wrap">
+        <table id="product-table">
+          <thead>
+            <tr><th>名称</th><th>品类</th><th>最新价格</th><th>更新时间</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="chart-wrap">
+        <div id="price-chart" style="width:100%;height:400px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ai-panel">
+    <h3>AI 助手</h3>
+    <div class="ai-modes">
+      <button class="mode-btn active" onclick="setMode('query')">查价格</button>
+      <button class="mode-btn" onclick="setMode('predict')">趋势预测</button>
+      <button class="mode-btn" onclick="setMode('report')">生成报告</button>
+    </div>
+    <div id="ai-chat" class="ai-chat"></div>
+    <div class="ai-input">
+      <input type="text" id="ai-input" placeholder="输入问题..." onkeydown="if(event.key==='Enter')sendMessage()">
+      <button onclick="sendMessage()">发送</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/charts.js"></script>
+<script src="js/ai-chat.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
