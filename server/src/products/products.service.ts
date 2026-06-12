@@ -33,10 +33,16 @@ export class ProductsService {
 
   async getPriceHistory(productId: number, days: number = 30) {
     return this.em.query(
-      `SELECT price, recorded_at FROM price_history
-       WHERE product_id = ? AND recorded_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-       ORDER BY recorded_at ASC`,
-      [productId, days]
+      `SELECT ph.price, ph.recorded_at FROM price_history ph
+       INNER JOIN (
+         SELECT DATE(recorded_at) as day, MAX(recorded_at) as max_time
+         FROM price_history
+         WHERE product_id = ? AND recorded_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+         GROUP BY DATE(recorded_at)
+       ) grp ON ph.recorded_at = grp.max_time
+       WHERE ph.product_id = ?
+       ORDER BY ph.recorded_at ASC`,
+      [productId, days, productId]
     );
   }
 }

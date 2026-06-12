@@ -33,10 +33,19 @@ def upsert_product(name, category, spec='', url='', image_url=''):
         conn.close()
 
 def insert_price(product_id, price, source='pconline'):
-    """记录一条价格"""
+    """记录一条价格，同一天已有记录则跳过"""
     conn = get_connection()
     try:
         cursor = conn.cursor()
+        # 检查今天是否已有记录
+        cursor.execute('''
+            SELECT id FROM price_history
+            WHERE product_id = %s AND DATE(recorded_at) = CURDATE()
+            LIMIT 1
+        ''', (product_id,))
+        if cursor.fetchone():
+            cursor.close()
+            return  # 今天已有记录，跳过
         cursor.execute('''
             INSERT INTO price_history (product_id, price, source)
             VALUES (%s, %s, %s)

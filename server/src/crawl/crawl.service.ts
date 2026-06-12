@@ -58,6 +58,45 @@ export class CrawlService {
     return this.tasks.get(taskId) || null;
   }
 
+  async refreshAllPrices(source: string = 'both'): Promise<{ taskId: string }> {
+    const taskId = 'refresh_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const refreshPath = join(__dirname, '..', '..', '..', 'crawler', 'refresh_prices.py');
+
+    const task: CrawlTask = { taskId, status: 'running', result: null };
+    this.tasks.set(taskId, task);
+
+    const python = process.env.PYTHON_PATH
+      || (process.platform === 'win32' ? 'py' : 'python3');
+
+    const proc = spawn(python, [refreshPath, source], {
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    });
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => { stdout += data.toString(); });
+    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    proc.on('close', (code) => {
+      try {
+        task.result = JSON.parse(stdout.trim());
+        task.status = task.result.success ? 'completed' : 'failed';
+      } catch {
+        task.result = { success: false, error: stderr || stdout || '刷新异常' };
+        task.status = 'failed';
+      }
+    });
+
+    proc.on('error', (err) => {
+      if (!task.result) {
+        task.result = { success: false, error: `spawn失败: ${err.message}` };
+        task.status = 'failed';
+      }
+    });
+
+    return { taskId };
+  }
+
   async confirmSave(category: string, products: Array<{ name: string; price: number; url?: string; img_url?: string }>): Promise<any> {
     return new Promise((resolve, reject) => {
       const python = process.env.PYTHON_PATH
