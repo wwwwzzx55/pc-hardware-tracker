@@ -41,4 +41,8 @@ function drawChart(name, data) {
   });
 }
 
-window.addEventListener('resize', () => chartInstance?.resize());
+// 容器尺寸变化时自动重绘图表（窗口缩放 + 拖拽分界线等场景）
+const chartDom = document.getElementById('price-chart');
+if (chartDom) {
+  new ResizeObserver(() => chartInstance?.resize()).observe(chartDom);
+}

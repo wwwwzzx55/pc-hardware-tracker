@@ -1,5 +1,6 @@
 const API = 'http://localhost:3000/api';
 let currentCategory = 'ALL';
+let currentSort = 'time_desc';
 let pollTimer = null;
 let dbSearchTimer = null;
 let currentSearch = '';
@@ -91,6 +92,7 @@ async function loadProducts(category, search) {
   const params = [];
   if (category && category !== 'ALL') params.push(`category=${encodeURIComponent(category)}`);
   if (search && search.trim()) params.push(`search=${encodeURIComponent(search.trim())}`);
+  if (currentSort && currentSort !== 'time_desc') params.push(`sort=${currentSort}`);
   if (params.length > 0) url += '?' + params.join('&');
   try {
     const data = await fetchJSON(url);
@@ -140,6 +142,11 @@ function filterCategory(cat) {
   const btn = document.querySelector(`.cat-btn[data-cat="${cat}"]`);
   if (btn) btn.classList.add('active');
   loadProducts(cat, currentSearch);
+}
+
+function onSortChange() {
+  currentSort = document.getElementById('sort-select').value;
+  loadProducts(currentCategory, currentSearch);
 }
 
 // 事件委托：分类筛选按钮
@@ -356,6 +363,43 @@ function closePreview() {
   document.getElementById('preview-panel').style.display = 'none';
   previewData = [];
 }
+
+// ==================== 拖拽调整表格/图表分界线 ====================
+(function initResizer() {
+  const panel = document.getElementById('data-panel');
+  const resizer = document.getElementById('resizer');
+  const left = document.getElementById('table-wrap');
+  if (!panel || !resizer || !left) return;
+
+  let dragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  resizer.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX = e.clientX;
+    startWidth = left.offsetWidth;
+    resizer.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const delta = e.clientX - startX;
+    const newWidth = Math.max(240, startWidth + delta); // min 240px
+    left.style.flex = `0 0 ${newWidth}px`;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
 
 // ==================== 初始加载 ====================
 loadProducts('ALL');

@@ -1,22 +1,150 @@
 /* AI 分析助手 — 完整版 */
 
 // ==================== 基础状态 ====================
-let aiMode = 'query';
-let aiSettings = null;
+let currentPromptId = 'query';
 let allPrompts = [];
 let editingPromptId = null;
+let aiSettings = null;
+let streamingEnabled = localStorage.getItem('ai-stream-enabled') !== 'false'; // 默认开启
 
-// ==================== 模式切换 ====================
-function setMode(mode) {
-  aiMode = mode;
-  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-  const btn = document.querySelector(`.mode-btn[data-mode="${mode}"]`);
-  if (btn) btn.classList.add('active');
+// ==================== 提示词标签栏 ====================
+async function loadPromptBar() {
+  try {
+    const resp = await fetch(`${API}/ai/prompts`);
+    const data = await resp.json();
+    allPrompts = data.prompts || [];
+    renderPromptBar();
+  } catch (e) {
+    console.error('加载提示词失败:', e);
+  }
 }
 
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.mode-btn[data-mode]');
-  if (btn) setMode(btn.dataset.mode);
+function renderPromptBar() {
+  const bar = document.getElementById('ai-prompt-bar');
+  if (!bar) return;
+
+  const activeId = currentPromptId || (allPrompts.length > 0 ? allPrompts[0].id : 'query');
+  // Ensure selected prompt still exists
+  if (!allPrompts.find(p => p.id === activeId) && allPrompts.length > 0) {
+    currentPromptId = allPrompts[0].id;
+  }
+
+  bar.innerHTML = allPrompts.map(p => `
+    <div class="prompt-chip ${p.id === currentPromptId ? 'active' : ''}"
+         data-id="${p.id}" onclick="selectPrompt('${p.id}')" title="${escapeHtml(p.description || '')}">
+      <span class="chip-name">${escapeHtml(p.name)}</span>
+      <span class="chip-edit" onclick="event.stopPropagation();openPromptEditor('${p.id}')">✎</span>
+    </div>
+  `).join('') + `<button class="chip-add" onclick="openPromptEditor()" title="新建提示词">+</button>`;
+
+  // Also update settings prompt list if open
+  if (document.getElementById('prompts-list')) {
+    renderSettingsPrompts();
+  }
+}
+
+function selectPrompt(id) {
+  if (!allPrompts.find(p => p.id === id)) return;
+  currentPromptId = id;
+  document.querySelectorAll('.prompt-chip').forEach(c => c.classList.remove('active'));
+  const chip = document.querySelector(`.prompt-chip[data-id="${id}"]`);
+  if (chip) chip.classList.add('active');
+}
+
+// ==================== 内联提示词编辑 ====================
+function openPromptEditor(id) {
+  editingPromptId = id || null;
+  const overlay = document.getElementById('prompt-editor-overlay');
+  if (!overlay) return;
+
+  document.getElementById('popup-title').textContent = id ? '编辑提示词' : '新建提示词';
+
+  // Delete button: visible when editing existing prompt
+  document.getElementById('btn-popup-delete').style.display = id ? '' : 'none';
+
+  if (id) {
+    const p = allPrompts.find(p => p.id === id);
+    document.getElementById('popup-name').value = p?.name || '';
+    document.getElementById('popup-desc').value = p?.description || '';
+    document.getElementById('popup-content').value = p?.content || '';
+  } else {
+    document.getElementById('popup-name').value = '';
+    document.getElementById('popup-desc').value = '';
+    document.getElementById('popup-content').value = '';
+  }
+
+  overlay.style.display = 'flex';
+  setTimeout(() => document.getElementById('popup-name').focus(), 150);
+}
+
+function closePromptEditor() {
+  editingPromptId = null;
+  const overlay = document.getElementById('prompt-editor-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+async function savePromptFromPopup() {
+  const name = document.getElementById('popup-name').value.trim();
+  const description = document.getElementById('popup-desc').value.trim();
+  const content = document.getElementById('popup-content').value.trim();
+
+  if (!name) { alert('请输入提示词名称'); return; }
+  if (!content) { alert('请输入提示词内容'); return; }
+
+  try {
+    if (editingPromptId) {
+      await fetch(`${API}/ai/prompts/${editingPromptId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, name, description })
+      });
+    } else {
+      const resp = await fetch(`${API}/ai/prompts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description, content })
+      });
+      const data = await resp.json();
+      if (data.prompt) {
+        currentPromptId = data.prompt.id; // Auto-select newly created
+      }
+    }
+    closePromptEditor();
+    await loadPromptBar();
+  } catch (e) {
+    alert('保存失败: ' + e.message);
+  }
+}
+
+async function deletePromptFromPopup() {
+  if (!editingPromptId) return;
+  if (!confirm('确定删除该提示词？')) return;
+  try {
+    await fetch(`${API}/ai/prompts/${editingPromptId}`, { method: 'DELETE' });
+    closePromptEditor();
+    await loadPromptBar();
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
+}
+
+// ==================== 流式开关 ====================
+function toggleStream() {
+  streamingEnabled = document.getElementById('stream-toggle').checked;
+  localStorage.setItem('ai-stream-enabled', streamingEnabled);
+}
+
+// ==================== 思考面板折叠 ====================
+function toggleThinking(btn) {
+  const panel = btn.closest('.thinking-panel');
+  if (panel) panel.classList.toggle('open');
+}
+
+// 初始化
+document.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.getElementById('stream-toggle');
+  if (toggle) toggle.checked = streamingEnabled;
+  loadPromptBar();
 });
 
 // ==================== 发送消息 ====================
@@ -25,6 +153,12 @@ async function sendMessage() {
   const message = input.value.trim();
   if (!message) return;
 
+  // 流式输出
+  if (streamingEnabled) {
+    return sendMessageStream(message);
+  }
+
+  // 非流式 fallback
   const chatDiv = document.getElementById('ai-chat');
 
   // 用户消息
@@ -36,8 +170,8 @@ async function sendMessage() {
   chatDiv.scrollTop = chatDiv.scrollHeight;
 
   // AI 回复
-  const url = aiMode === 'report' ? `${API}/ai/report` : `${API}/ai/chat`;
-  const body = aiMode === 'report' ? {} : { message, mode: aiMode };
+  const url = `${API}/ai/chat`;
+  const body = { message, mode: currentPromptId };
 
   try {
     const resp = await fetch(url, {
@@ -59,6 +193,142 @@ async function sendMessage() {
     chatDiv.appendChild(errMsg);
   }
   chatDiv.scrollTop = chatDiv.scrollHeight;
+}
+
+// ==================== 流式发送消息 ====================
+async function sendMessageStream(message) {
+  const input = document.getElementById('ai-input');
+  const chatDiv = document.getElementById('ai-chat');
+
+  // 用户消息
+  const userMsg = document.createElement('div');
+  userMsg.className = 'msg user';
+  userMsg.textContent = message;
+  chatDiv.appendChild(userMsg);
+  input.value = '';
+
+  // 构建 AI 消息容器
+  const aiMsg = document.createElement('div');
+  aiMsg.className = 'msg ai';
+
+  // 思考面板
+  const thinkingPanel = document.createElement('div');
+  thinkingPanel.className = 'thinking-panel';
+  thinkingPanel.style.display = 'none';
+  thinkingPanel.innerHTML = `
+    <button class="thinking-toggle" onclick="toggleThinking(this)">
+      💭 思考过程 <span class="thinking-arrow">▸</span>
+    </button>
+    <div class="thinking-content"></div>
+  `;
+  aiMsg.appendChild(thinkingPanel);
+
+  // 内容区
+  const msgContent = document.createElement('div');
+  msgContent.className = 'msg-content';
+  aiMsg.appendChild(msgContent);
+
+  // 光标
+  const cursor = document.createElement('span');
+  cursor.className = 'stream-cursor';
+  cursor.innerHTML = '▌';
+  cursor.style.display = 'none';
+  aiMsg.appendChild(cursor);
+
+  chatDiv.appendChild(aiMsg);
+
+  // 滚动到最新的AI消息
+  const scrollToChat = () => {
+    chatDiv.scrollTop = chatDiv.scrollHeight;
+  };
+  scrollToChat();
+
+  try {
+    const resp = await fetch(`${API}/ai/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, mode: currentPromptId }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}`);
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let hasThinking = false;
+    let hasContent = false;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      let currentEvent = '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+
+        if (trimmed.startsWith('event:')) {
+          currentEvent = trimmed.slice(6).trim();
+          continue;
+        }
+
+        if (trimmed.startsWith('data:')) {
+          const jsonStr = trimmed.slice(5).trim();
+          if (!jsonStr) continue;
+
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const text = parsed.text || '';
+
+            if (currentEvent === 'thinking' || (!currentEvent && text && !hasContent)) {
+              // 显示思考面板
+              if (!hasThinking) {
+                thinkingPanel.style.display = 'block';
+                hasThinking = true;
+              }
+              const thinkingContent = thinkingPanel.querySelector('.thinking-content');
+              if (thinkingContent) {
+                thinkingContent.textContent += text;
+                thinkingContent.scrollTop = thinkingContent.scrollHeight;
+              }
+            } else if (currentEvent === 'content' || (!currentEvent && text && hasThinking)) {
+              // 显示内容
+              if (!hasContent) {
+                // 首次出现内容时，自动折叠思考面板
+                thinkingPanel.classList.add('open');
+                setTimeout(() => { thinkingPanel.classList.remove('open'); }, 500);
+                cursor.style.display = 'inline';
+                hasContent = true;
+              }
+              msgContent.textContent += text;
+              scrollToChat();
+            } else if (currentEvent === 'error') {
+              msgContent.textContent = msgContent.textContent || '错误: ' + text;
+              cursor.style.display = 'none';
+              return;
+            } else if (currentEvent === 'done') {
+              cursor.style.display = 'none';
+              return;
+            }
+          } catch {
+            // Skip unparseable data
+          }
+        }
+      }
+    }
+
+    // 流结束，隐藏光标
+    cursor.style.display = 'none';
+  } catch (e) {
+    cursor.style.display = 'none';
+    msgContent.textContent = msgContent.textContent || 'AI 服务暂不可用，请检查设置中的 API 地址和 Key 是否正确';
+  }
+  scrollToChat();
 }
 
 // ==================== 设置面板 ====================
@@ -90,12 +360,6 @@ document.addEventListener('click', (e) => {
     if (content) content.classList.add('active');
   }
 });
-
-// ==================== API Key 显示切换 ====================
-function toggleApiKeyVisibility() {
-  const input = document.getElementById('set-apiKey');
-  input.type = input.type === 'password' ? 'text' : 'password';
-}
 
 // ==================== 设置加载与保存 ====================
 async function loadSettings() {
@@ -191,20 +455,14 @@ async function fetchModels() {
   }
 }
 
-// ==================== 提示词管理 ====================
+// ==================== 提示词管理（设置面板） ====================
 async function loadPrompts() {
-  try {
-    const resp = await fetch(`${API}/ai/prompts`);
-    const data = await resp.json();
-    allPrompts = data.prompts || [];
-    renderPrompts();
-  } catch (e) {
-    console.error('加载提示词失败:', e);
-  }
+  await loadPromptBar(); // 同步刷新标签栏和设置面板列表
 }
 
-function renderPrompts() {
+function renderSettingsPrompts() {
   const list = document.getElementById('prompts-list');
+  if (!list) return;
   if (allPrompts.length === 0) {
     list.innerHTML = '<div class="prompts-info" style="padding:20px;text-align:center">暂无提示词模板</div>';
     return;
@@ -219,9 +477,9 @@ function renderPrompts() {
       <div class="prompt-card-desc">${escapeHtml(p.description || '')}</div>
       <div class="prompt-card-preview" title="${escapeHtml(p.content)}">${escapeHtml(p.content?.slice(0, 80) || '')}${(p.content?.length || 0) > 80 ? '...' : ''}</div>
       <div class="prompt-card-actions">
+        ${p.id === currentPromptId ? '<span class="badge-active">✓ 当前使用</span>' : ''}
         <button class="btn-sm-primary" onclick="editPrompt('${p.id}')">✏️ 编辑</button>
-        ${!p.isPreset ? `<button class="btn-sm-danger" onclick="deletePrompt('${p.id}')">🗑 删除</button>` : ''}
-        ${p.isPreset ? `<button class="btn-sm-reset" onclick="resetPrompt('${p.id}')">↩ 恢复默认</button>` : ''}
+        <button class="btn-sm-danger" onclick="deletePrompt('${p.id}')">🗑 删除</button>
       </div>
     </div>
   `).join('');
@@ -237,6 +495,9 @@ function editPrompt(id) {
   document.getElementById('prompt-name').value = prompt.name;
   document.getElementById('prompt-desc').value = prompt.description || '';
   document.getElementById('prompt-content').value = prompt.content || '';
+
+  // Scroll to editor
+  document.getElementById('prompt-editor').scrollIntoView({ behavior: 'smooth' });
 }
 
 function showAddPrompt() {
@@ -266,14 +527,12 @@ async function savePrompt() {
 
   try {
     if (editingPromptId) {
-      // 更新已有提示词
       await fetch(`${API}/ai/prompts/${editingPromptId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content, name, description })
       });
     } else {
-      // 新增自定义提示词
       await fetch(`${API}/ai/prompts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -281,7 +540,7 @@ async function savePrompt() {
       });
     }
     cancelEditPrompt();
-    await loadPrompts();
+    await loadPromptBar();
   } catch (e) {
     alert('保存失败: ' + e.message);
   }
@@ -291,7 +550,7 @@ async function resetPrompt(id) {
   if (!confirm('确定恢复该提示词为默认内容？')) return;
   try {
     await fetch(`${API}/ai/prompts/${id}/reset`, { method: 'POST' });
-    await loadPrompts();
+    await loadPromptBar();
   } catch (e) {
     alert('恢复失败: ' + e.message);
   }
@@ -301,7 +560,7 @@ async function deletePrompt(id) {
   if (!confirm('确定删除该自定义提示词？')) return;
   try {
     await fetch(`${API}/ai/prompts/${id}`, { method: 'DELETE' });
-    await loadPrompts();
+    await loadPromptBar();
   } catch (e) {
     alert('删除失败: ' + e.message);
   }

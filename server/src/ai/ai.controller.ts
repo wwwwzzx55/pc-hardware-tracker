@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Put, Body, Param, Delete } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, Param, Delete, Res } from '@nestjs/common';
 import { AiService, AiSettings, PromptTemplate } from './ai.service';
 
 @Controller('api/ai')
@@ -10,6 +10,30 @@ export class AiController {
   @Post('chat')
   chat(@Body() body: { message: string; mode?: string }) {
     return this.service.chat(body.message, body.mode || 'query');
+  }
+
+  @Post('chat/stream')
+  async chatStream(@Body() body: { message: string; mode?: string }, @Res() res: any) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    try {
+      const mode = body.mode || 'query';
+      const generator = mode === 'report'
+        ? this.service.generateReportStream()
+        : this.service.chatStream(body.message, mode);
+
+      for await (const chunk of generator) {
+        res.write(`event: ${chunk.type}\n`);
+        res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+      }
+    } catch (e: any) {
+      res.write(`event: error\n`);
+      res.write(`data: ${JSON.stringify({ text: e?.message || '未知错误' })}\n\n`);
+    }
+    res.end();
   }
 
   @Post('report')
@@ -44,16 +68,17 @@ export class AiController {
   // ==================== Prompts ====================
 
   @Get('prompts')
-  getPrompts() {
-    return { prompts: this.service.getAllPrompts() };
+  async getPrompts() {
+    const prompts = await this.service.getAllPrompts();
+    return { prompts };
   }
 
   @Put('prompts/:id')
-  updatePrompt(
+  async updatePrompt(
     @Param('id') id: string,
-    @Body() body: { content: string },
+    @Body() body: { content: string; name?: string; description?: string },
   ) {
-    const prompt = this.service.updatePrompt(id, body.content);
+    const prompt = await this.service.updatePrompt(id, body.content, body.name, body.description);
     if (!prompt) {
       return { error: '提示词未找到' };
     }
@@ -61,8 +86,8 @@ export class AiController {
   }
 
   @Post('prompts/:id/reset')
-  resetPrompt(@Param('id') id: string) {
-    const prompt = this.service.resetPrompt(id);
+  async resetPrompt(@Param('id') id: string) {
+    const prompt = await this.service.resetPrompt(id);
     if (!prompt) {
       return { error: '提示词未找到' };
     }
@@ -70,8 +95,8 @@ export class AiController {
   }
 
   @Post('prompts')
-  addCustomPrompt(@Body() body: { name: string; description: string; content: string }) {
-    const prompt = this.service.addCustomPrompt(
+  async addCustomPrompt(@Body() body: { name: string; description: string; content: string }) {
+    const prompt = await this.service.addCustomPrompt(
       body.name,
       body.description,
       body.content,
@@ -80,8 +105,8 @@ export class AiController {
   }
 
   @Delete('prompts/:id')
-  deletePrompt(@Param('id') id: string) {
-    const ok = this.service.deleteCustomPrompt(id);
+  async deletePrompt(@Param('id') id: string) {
+    const ok = await this.service.deleteCustomPrompt(id);
     return { success: ok };
   }
 }

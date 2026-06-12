@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
-import { LLMProvider, OpenAIProvider } from './providers/openai.provider';
+import { LLMProvider, OpenAIProvider, StreamChunk } from './providers/openai.provider';
 import { AnthropicProvider } from './providers/anthropic.provider';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -32,49 +32,16 @@ const DEFAULT_SETTINGS: AiSettings = {
   maxTokens: 2048,
 };
 
-const PRESET_PROMPTS: PromptTemplate[] = [
-  {
-    id: 'query',
-    name: '价格查询助手',
-    description: '根据数据库数据回答硬件价格问题',
-    isPreset: true,
-    content: '你是硬件价格查询助手。根据数据库中的数据回答用户关于硬件价格的问题。用中文回复，简洁准确。',
-  },
-  {
-    id: 'predict',
-    name: '趋势预测分析师',
-    description: '根据历史价格数据预测短期走势',
-    isPreset: true,
-    content: '你是硬件价格趋势分析师。根据历史价格数据，预测短期价格走势，给出"建议入手"或"建议观望"的建议及理由。分析时请考虑：1)近期价格波动幅度 2)价格所处的历史区间 3)品类季节性规律。',
-  },
-  {
-    id: 'report',
-    name: '市场分析报告',
-    description: '生成结构化的市场分析报告',
-    isPreset: true,
-    content: '你是硬件市场分析师。根据提供的数据生成一份结构化的市场分析报告，包含：整体市场趋势概述、各品类价格动态分析、值得关注的产品、短期购买建议。用中文撰写，专业且易懂。',
-  },
-  {
-    id: 'compare',
-    name: '产品对比分析',
-    description: '对比多个硬件产品的性价比',
-    isPreset: true,
-    content: '你是硬件产品对比分析师。根据数据库中的产品信息，对比分析用户指定的多个硬件产品。从价格、性能口碑、价格趋势、性价比等维度进行比较，给出推荐意见。用中文回复，结构化呈现。',
-  },
-];
-
 const SETTINGS_FILE = path.join(__dirname, '..', '..', 'data', 'ai-settings.json');
-const PROMPTS_FILE = path.join(__dirname, '..', '..', 'data', 'ai-prompts.json');
 
 @Injectable()
 export class AiService {
   private settings: AiSettings;
-  private customPrompts: PromptTemplate[] = [];
   private providerCache: { key: string; provider: LLMProvider } | null = null;
 
   constructor(@InjectEntityManager() private em: EntityManager) {
     this.settings = this.loadSettings();
-    this.customPrompts = this.loadPrompts();
+    this.seedPresetPrompts();
   }
 
   // ==================== LLM Provider ====================
@@ -115,8 +82,8 @@ export class AiService {
 
   async chat(message: string, mode: string = 'query') {
     const context = await this.buildContext(message);
-    const prompt = this.getPromptByMode(mode);
-    const systemPrompt = prompt?.content || this.getDefaultPrompt(mode);
+    const prompt = await this.getPromptByMode(mode);
+    const systemPrompt = prompt?.content || '你是硬件价格查询助手。根据数据库中的数据回答用户关于硬件价格的问题。用中文回复，简洁准确。';
 
     const response = await this.getProvider().chat([
       { role: 'system', content: `${systemPrompt}\n\n数据库数据:\n${context}` },
@@ -124,6 +91,17 @@ export class AiService {
     ]);
 
     return { reply: response, mode };
+  }
+
+  async *chatStream(message: string, mode: string = 'query'): AsyncGenerator<StreamChunk> {
+    const context = await this.buildContext(message);
+    const prompt = await this.getPromptByMode(mode);
+    const systemPrompt = prompt?.content || '你是硬件价格查询助手。根据数据库中的数据回答用户关于硬件价格的问题。用中文回复，简洁准确。';
+
+    yield* this.getProvider().chatStream([
+      { role: 'system', content: `${systemPrompt}\n\n数据库数据:\n${context}` },
+      { role: 'user', content: message },
+    ]);
   }
 
   async generateReport() {
@@ -135,7 +113,7 @@ export class AiService {
     `);
     const dataText = JSON.stringify(overview);
 
-    const prompt = this.getPromptByMode('report');
+    const prompt = await this.getPromptByMode('report');
     const systemPrompt = prompt?.content || '你是硬件价格分析师。根据以下数据生成一份简洁的市场分析报告，包含：整体趋势、各品类动态、购买建议。';
 
     const response = await this.getProvider().chat([
@@ -146,18 +124,33 @@ export class AiService {
     return { report: response };
   }
 
+  async *generateReportStream(): AsyncGenerator<StreamChunk> {
+    const overview = await this.em.query(`
+      SELECT p.name, p.category, ph.price, ph.recorded_at
+      FROM products p
+      JOIN price_history ph ON p.id = ph.product_id
+      ORDER BY ph.recorded_at DESC LIMIT 100
+    `);
+    const dataText = JSON.stringify(overview);
+
+    const prompt = await this.getPromptByMode('report');
+    const systemPrompt = prompt?.content || '你是硬件价格分析师。根据以下数据生成一份简洁的市场分析报告，包含：整体趋势、各品类动态、购买建议。';
+
+    yield* this.getProvider().chatStream([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: dataText },
+    ]);
+  }
+
   // ==================== Settings ====================
 
   getSettings(): AiSettings {
-    return { ...this.settings, apiKey: this.maskApiKey(this.settings.apiKey) };
+    return { ...this.settings };
   }
 
   updateSettings(updates: Partial<AiSettings>): AiSettings {
     if (updates.apiKey !== undefined && updates.apiKey !== '') {
-      // Only update apiKey if it's not a masked value
-      if (!updates.apiKey.startsWith('***')) {
-        this.settings.apiKey = updates.apiKey;
-      }
+      this.settings.apiKey = updates.apiKey;
     }
     if (updates.provider !== undefined) this.settings.provider = updates.provider;
     if (updates.baseUrl !== undefined) this.settings.baseUrl = updates.baseUrl;
@@ -236,67 +229,96 @@ export class AiService {
 
   // ==================== Prompts ====================
 
-  getAllPrompts(): PromptTemplate[] {
-    return [...PRESET_PROMPTS, ...this.customPrompts];
+  async getAllPrompts(): Promise<PromptTemplate[]> {
+    const rows: any[] = await this.em.query(
+      'SELECT id, name, description, content, is_preset AS isPreset FROM ai_prompts ORDER BY sort_order ASC, id ASC',
+    );
+    return rows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description || '',
+      content: r.content,
+      isPreset: !!r.isPreset,
+    }));
   }
 
-  getPromptByMode(mode: string): PromptTemplate | undefined {
-    const all = this.getAllPrompts();
-    return all.find(p => p.id === mode);
-  }
-
-  updatePrompt(id: string, content: string): PromptTemplate | null {
-    // Check if it's a preset
-    const preset = PRESET_PROMPTS.find(p => p.id === id);
-    if (preset) {
-      // Create custom override
-      const existing = this.customPrompts.findIndex(p => p.id === id);
-      if (existing >= 0) {
-        this.customPrompts[existing].content = content;
-      } else {
-        this.customPrompts.push({
-          ...preset,
-          isPreset: false,
-          content,
-        });
-      }
-    } else {
-      const custom = this.customPrompts.find(p => p.id === id);
-      if (custom) {
-        custom.content = content;
-      } else {
-        return null;
-      }
-    }
-    this.savePrompts();
-    return this.getAllPrompts().find(p => p.id === id) || null;
-  }
-
-  resetPrompt(id: string): PromptTemplate | null {
-    this.customPrompts = this.customPrompts.filter(p => p.id !== id);
-    this.savePrompts();
-    return this.getAllPrompts().find(p => p.id === id) || null;
-  }
-
-  addCustomPrompt(name: string, description: string, content: string): PromptTemplate {
-    const id = 'custom_' + Date.now();
-    const prompt: PromptTemplate = {
-      id,
-      name,
-      description,
-      content,
-      isPreset: false,
+  async getPromptByMode(mode: string): Promise<PromptTemplate | null> {
+    const rows: any[] = await this.em.query(
+      'SELECT id, name, description, content, is_preset AS isPreset FROM ai_prompts WHERE id = ? ORDER BY is_preset ASC LIMIT 1',
+      [mode],
+    );
+    if (rows.length === 0) return null;
+    return {
+      id: rows[0].id,
+      name: rows[0].name,
+      description: rows[0].description || '',
+      content: rows[0].content,
+      isPreset: !!rows[0].isPreset,
     };
-    this.customPrompts.push(prompt);
-    this.savePrompts();
-    return prompt;
   }
 
-  deleteCustomPrompt(id: string): boolean {
-    const initial = this.customPrompts.length;
-    this.customPrompts = this.customPrompts.filter(p => p.id !== id);
-    this.savePrompts();
-    return this.customPrompts.length < initial;
+  async updatePrompt(id: string, content: string, name?: string, description?: string): Promise<PromptTemplate | null> {
+    // Check existing
+    const existing = await this.em.query('SELECT * FROM ai_prompts WHERE id = ?', [id]);
+    if (existing.length === 0) return null;
+
+    // Upsert: if preset and no override yet, insert new row with is_preset=0
+    const row: any = existing[0];
+    if (row.is_preset && existing.length === 1) {
+      await this.em.query(
+        `INSERT INTO ai_prompts (id, name, description, content, is_preset, sort_order)
+         VALUES (?, ?, ?, ?, 0, (SELECT sort_order FROM (SELECT sort_order FROM ai_prompts WHERE id = ?) AS t))
+         ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), content=VALUES(content)`,
+        [id, name || row.name, description !== undefined ? description : row.description, content, id],
+      );
+    } else {
+      await this.em.query(
+        'UPDATE ai_prompts SET content = ?' +
+        (name ? ', name = ?' : '') +
+        (description !== undefined ? ', description = ?' : '') +
+        ' WHERE id = ? AND is_preset = 0',
+        [content, ...[name, description !== undefined ? description : undefined].filter(v => v !== undefined), id].filter(v => v !== undefined),
+      );
+    }
+
+    return this.getPromptByMode(id);
+  }
+
+  async resetPrompt(id: string): Promise<PromptTemplate | null> {
+    await this.em.query('DELETE FROM ai_prompts WHERE id = ? AND is_preset = 0', [id]);
+    return this.getPromptByMode(id);
+  }
+
+  async addCustomPrompt(name: string, description: string, content: string): Promise<PromptTemplate> {
+    const id = 'custom_' + Date.now();
+    await this.em.query(
+      'INSERT INTO ai_prompts (id, name, description, content, is_preset, sort_order) VALUES (?, ?, ?, ?, 0, 99)',
+      [id, name, description || '', content],
+    );
+    return (await this.getPromptByMode(id))!;
+  }
+
+  async deleteCustomPrompt(id: string): Promise<boolean> {
+    const result: any = await this.em.query(
+      'DELETE FROM ai_prompts WHERE id = ?',
+      [id],
+    );
+    return result?.affectedRows > 0;
+  }
+
+  private async seedPresetPrompts(): Promise<void> {
+    const presets = [
+      { id: 'query', name: '查价格', description: '根据数据库数据回答硬件价格问题', content: '你是硬件价格查询助手。根据数据库中的数据回答用户关于硬件价格的问题。用中文回复，简洁准确。', sort_order: 1 },
+      { id: 'predict', name: '预测走势', description: '根据历史价格数据预测短期走势', content: '你是硬件价格趋势分析师。根据历史价格数据，预测短期价格走势，给出"建议入手"或"建议观望"的建议及理由。分析时请考虑：1)近期价格波动幅度 2)价格所处的历史区间 3)品类季节性规律。', sort_order: 2 },
+      { id: 'report', name: '生成报告', description: '生成结构化的市场分析报告', content: '你是硬件市场分析师。根据提供的数据生成一份结构化的市场分析报告，包含：整体市场趋势概述、各品类价格动态分析、值得关注的产品、短期购买建议。用中文撰写，专业且易懂。', sort_order: 3 },
+      { id: 'compare', name: '产品对比', description: '对比多个硬件产品的性价比', content: '你是硬件产品对比分析师。根据数据库中的产品信息，对比分析用户指定的多个硬件产品。从价格、性能口碑、价格趋势、性价比等维度进行比较，给出推荐意见。用中文回复，结构化呈现。', sort_order: 4 },
+    ];
+    for (const p of presets) {
+      await this.em.query(
+        'INSERT IGNORE INTO ai_prompts (id, name, description, content, is_preset, sort_order) VALUES (?, ?, ?, ?, 1, ?)',
+        [p.id, p.name, p.description, p.content, p.sort_order],
+      );
+    }
   }
 
   // ==================== Private Helpers ====================
@@ -324,23 +346,6 @@ export class AiService {
     `);
     return JSON.stringify(data);
   }
-
-  private getDefaultPrompt(mode: string): string {
-    switch (mode) {
-      case 'predict':
-        return '你是硬件价格趋势分析师。根据历史价格数据，预测短期价格走势，给出"建议入手"或"建议观望"的建议及理由。';
-      case 'report':
-        return '你是硬件市场分析师。根据数据生成结构化的市场分析报告。';
-      default:
-        return '你是硬件价格查询助手。根据数据库中的数据回答用户关于硬件价格的问题。用中文回复，简洁准确。';
-    }
-  }
-
-  private maskApiKey(key: string): string {
-    if (!key || key.length < 8) return key;
-    return key.slice(0, 4) + '***' + key.slice(-4);
-  }
-
   // ==================== File Storage ====================
 
   private ensureDataDir() {
@@ -365,23 +370,6 @@ export class AiService {
     try {
       this.ensureDataDir();
       fs.writeFileSync(SETTINGS_FILE, JSON.stringify(this.settings, null, 2), 'utf-8');
-    } catch { /* ignore */ }
-  }
-
-  private loadPrompts(): PromptTemplate[] {
-    try {
-      this.ensureDataDir();
-      if (fs.existsSync(PROMPTS_FILE)) {
-        return JSON.parse(fs.readFileSync(PROMPTS_FILE, 'utf-8'));
-      }
-    } catch { /* ignore */ }
-    return [];
-  }
-
-  private savePrompts() {
-    try {
-      this.ensureDataDir();
-      fs.writeFileSync(PROMPTS_FILE, JSON.stringify(this.customPrompts, null, 2), 'utf-8');
     } catch { /* ignore */ }
   }
 }

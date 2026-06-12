@@ -57,11 +57,19 @@
         <button class="cat-btn" data-cat="RAM">内存</button>
         <button class="cat-btn" data-cat="MB">主板</button>
         <button class="cat-btn" data-cat="SSD">SSD</button>
+        <select id="sort-select" class="sort-select" onchange="onSortChange()">
+          <option value="time_desc">🕐 时间最新</option>
+          <option value="time_asc">🕐 时间最早</option>
+          <option value="name">🔤 名称 A-Z</option>
+          <option value="category">📂 品类</option>
+          <option value="price_asc">💰 价格 ↑</option>
+          <option value="price_desc">💰 价格 ↓</option>
+        </select>
       </div>
     </div>
 
-    <div class="data-panel">
-      <div class="table-wrap">
+    <div class="data-panel" id="data-panel">
+      <div class="table-wrap" id="table-wrap">
         <table id="product-table">
           <thead>
             <tr><th>产品名称</th><th>品类</th><th>最新价格</th><th>更新时间</th></tr>
@@ -69,7 +77,8 @@
           <tbody></tbody>
         </table>
       </div>
-      <div class="chart-wrap">
+      <div class="resizer" id="resizer"></div>
+      <div class="chart-wrap" id="chart-wrap">
         <div id="price-chart" style="width:100%;height:400px;">
           <div class="chart-empty">点击左侧产品查看价格趋势</div>
         </div>
@@ -84,9 +93,45 @@
       <button class="settings-btn" onclick="openSettings()" title="AI 设置">⚙️ 设置</button>
     </div>
     <div class="ai-modes">
-      <button class="mode-btn active" data-mode="query">查价格</button>
-      <button class="mode-btn" data-mode="predict">预测走势</button>
-      <button class="mode-btn" data-mode="report">生成报告</button>
+      <div class="ai-prompt-bar" id="ai-prompt-bar">
+        <!-- JS 动态渲染提示词标签 -->
+      </div>
+      <label class="stream-toggle" title="流式输出（打字机效果）">
+        <input type="checkbox" id="stream-toggle" checked onchange="toggleStream()">
+        <span class="toggle-label">流式输出</span>
+      </label>
+    </div>
+    <!-- 内联提示词编辑弹窗 -->
+    <div id="prompt-editor-overlay" class="prompt-editor-overlay" style="display:none" onclick="if(event.target===this)closePromptEditor()">
+      <div id="prompt-editor-popup" class="prompt-editor-popup">
+        <div class="popup-header">
+          <span id="popup-title">编辑提示词</span>
+          <button class="popup-close" onclick="closePromptEditor()">✕</button>
+        </div>
+        <div class="popup-body">
+          <div class="popup-field">
+            <label>名称</label>
+            <input id="popup-name" placeholder="例如：查价格、深度分析..." maxlength="20">
+          </div>
+          <div class="popup-field">
+            <label>描述 <small>（可选）</small></label>
+            <input id="popup-desc" placeholder="一句话说明用途" maxlength="100">
+          </div>
+          <div class="popup-field">
+            <label>提示词内容</label>
+            <textarea id="popup-content" rows="6" placeholder="编写系统提示词，告诉 AI 如何回答用户的问题..."></textarea>
+          </div>
+        </div>
+        <div class="popup-footer">
+          <div class="popup-left-actions">
+            <button class="btn-popup-delete" id="btn-popup-delete" onclick="deletePromptFromPopup()">🗑 删除提示词</button>
+          </div>
+          <div class="popup-right-actions">
+            <button class="btn-popup-cancel" onclick="closePromptEditor()">取消</button>
+            <button class="btn-popup-save" onclick="savePromptFromPopup()">💾 保存</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="ai-chat" class="ai-chat"></div>
     <div class="ai-input">
@@ -125,8 +170,7 @@
             <div class="form-group">
               <label>API Key</label>
               <div class="input-with-btn">
-                <input type="password" id="set-apiKey" placeholder="sk-... 或 your-api-key">
-                <button class="toggle-pwd-btn" onclick="toggleApiKeyVisibility()" title="显示/隐藏">👁</button>
+                <input type="text" id="set-apiKey" placeholder="sk-... 或 your-api-key">
               </div>
             </div>
             <div class="form-group">
