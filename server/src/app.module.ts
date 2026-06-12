@@ -12,7 +12,7 @@ import { AiModule } from './ai/ai.module';
       host: 'localhost',
       port: 3306,
       username: 'root',
-      password: '908%Wang',
+      password: process.env.DB_PASSWORD || '908%Wang',
       database: 'pc_hardware_tracker',
       entities: [],
       synchronize: false,

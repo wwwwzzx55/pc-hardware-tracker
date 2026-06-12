@@ -46,13 +46,17 @@
   <div class="content">
     <div class="panel-header">
       <div id="stats-bar" class="stats-bar">暂无数据 — 请在上方输入关键词并点击"开始爬取"</div>
+      <div class="search-db-row">
+        <input type="text" id="db-search" placeholder="搜索数据库产品名称，如 RTX、i5、三星..." oninput="onDbSearch()">
+        <button class="clear-search-btn" onclick="clearDbSearch()" style="display:none">✕</button>
+      </div>
       <div class="filter-bar">
-        <button class="cat-btn active" onclick="filterCategory('ALL')">全部</button>
-        <button class="cat-btn" onclick="filterCategory('CPU')">CPU</button>
-        <button class="cat-btn" onclick="filterCategory('GPU')">显卡</button>
-        <button class="cat-btn" onclick="filterCategory('RAM')">内存</button>
-        <button class="cat-btn" onclick="filterCategory('MB')">主板</button>
-        <button class="cat-btn" onclick="filterCategory('SSD')">SSD</button>
+        <button class="cat-btn active" data-cat="ALL">全部</button>
+        <button class="cat-btn" data-cat="CPU">CPU</button>
+        <button class="cat-btn" data-cat="GPU">显卡</button>
+        <button class="cat-btn" data-cat="RAM">内存</button>
+        <button class="cat-btn" data-cat="MB">主板</button>
+        <button class="cat-btn" data-cat="SSD">SSD</button>
       </div>
     </div>
 
@@ -66,23 +70,138 @@
         </table>
       </div>
       <div class="chart-wrap">
-        <div id="price-chart" style="width:100%;height:400px;"></div>
+        <div id="price-chart" style="width:100%;height:400px;">
+          <div class="chart-empty">点击左侧产品查看价格趋势</div>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- 底部：AI助手 -->
   <div class="ai-panel">
-    <h3>AI 分析助手</h3>
+    <div class="ai-panel-header">
+      <h3>AI 分析助手</h3>
+      <button class="settings-btn" onclick="openSettings()" title="AI 设置">⚙️ 设置</button>
+    </div>
     <div class="ai-modes">
-      <button class="mode-btn active" onclick="setMode('query')">查价格</button>
-      <button class="mode-btn" onclick="setMode('predict')">预测走势</button>
-      <button class="mode-btn" onclick="setMode('report')">生成报告</button>
+      <button class="mode-btn active" data-mode="query">查价格</button>
+      <button class="mode-btn" data-mode="predict">预测走势</button>
+      <button class="mode-btn" data-mode="report">生成报告</button>
     </div>
     <div id="ai-chat" class="ai-chat"></div>
     <div class="ai-input">
       <input type="text" id="ai-input" placeholder="输入问题，如：RTX 4070 最近降价了吗？" onkeydown="if(event.key==='Enter')sendMessage()">
       <button onclick="sendMessage()">发送</button>
+    </div>
+  </div>
+
+  <!-- AI 设置面板 -->
+  <div id="settings-overlay" class="settings-overlay" style="display:none">
+    <div class="settings-modal">
+      <div class="settings-header">
+        <h2>⚙️ AI 助手设置</h2>
+        <button class="settings-close" onclick="closeSettings()">✕</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-tabs">
+          <button class="stab active" data-tab="provider">🔗 服务配置</button>
+          <button class="stab" data-tab="prompts">📝 提示词编辑</button>
+        </div>
+        <div class="settings-content">
+          <!-- 服务配置 -->
+          <div id="tab-provider" class="stab-content active">
+            <div class="form-group">
+              <label>提供商类型</label>
+              <select id="set-provider">
+                <option value="openai">OpenAI 兼容</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>API 地址</label>
+              <input type="text" id="set-baseUrl" placeholder="https://api.openai.com/v1">
+              <span class="form-hint">支持 OpenAI 兼容接口和 Anthropic 格式</span>
+            </div>
+            <div class="form-group">
+              <label>API Key</label>
+              <div class="input-with-btn">
+                <input type="password" id="set-apiKey" placeholder="sk-... 或 your-api-key">
+                <button class="toggle-pwd-btn" onclick="toggleApiKeyVisibility()" title="显示/隐藏">👁</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>模型选择</label>
+              <div class="input-with-btn">
+                <select id="set-model">
+                  <option value="">请先拉取模型列表</option>
+                </select>
+                <button class="fetch-models-btn" onclick="fetchModels()" id="btn-fetch-models">🔍 拉取模型</button>
+              </div>
+              <span id="models-status" class="form-hint"></span>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Temperature <small>(0-2)</small></label>
+                <input type="number" id="set-temperature" min="0" max="2" step="0.1" value="0.7">
+              </div>
+              <div class="form-group">
+                <label>Max Tokens</label>
+                <input type="number" id="set-maxTokens" min="100" max="128000" step="100" value="2048">
+              </div>
+            </div>
+            <div class="settings-actions">
+              <button class="btn-primary" onclick="saveSettings()">💾 保存设置</button>
+              <button class="btn-secondary" onclick="loadSettings()">↻ 重新加载</button>
+            </div>
+            <div id="settings-msg" class="settings-msg"></div>
+          </div>
+
+          <!-- 提示词编辑 -->
+          <div id="tab-prompts" class="stab-content">
+            <div class="prompts-toolbar">
+              <span class="prompts-info">预设模板和自定义提示词，点击可编辑</span>
+              <button class="btn-sm-primary" onclick="showAddPrompt()">+ 新增提示词</button>
+            </div>
+            <div id="prompts-list" class="prompts-list"></div>
+            <div id="prompt-editor" class="prompt-editor" style="display:none">
+              <h4 id="prompt-editor-title">编辑提示词</h4>
+              <div class="form-group">
+                <label>名称</label>
+                <input type="text" id="prompt-name" placeholder="提示词名称">
+              </div>
+              <div class="form-group">
+                <label>描述</label>
+                <input type="text" id="prompt-desc" placeholder="简短描述该提示词的用途">
+              </div>
+              <div class="form-group">
+                <label>提示词内容</label>
+                <textarea id="prompt-content" rows="6" placeholder="输入系统提示词..."></textarea>
+              </div>
+              <div class="settings-actions">
+                <button class="btn-primary" onclick="savePrompt()">💾 保存</button>
+                <button class="btn-secondary" onclick="cancelEditPrompt()">取消</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 预览面板（爬取完成后弹出） -->
+  <div id="preview-panel" class="preview-overlay" style="display:none">
+    <div class="preview-modal">
+      <div class="preview-header">
+        <h2 id="preview-title">爬取结果预览</h2>
+        <button class="preview-close" onclick="closePreview()">✕</button>
+      </div>
+      <div class="preview-toolbar">
+        <label><input type="checkbox" id="select-all" onchange="toggleSelectAll()" checked> 全选</label>
+        <span id="preview-count" class="preview-count"></span>
+        <button class="preview-btn save-btn" onclick="confirmSave()">存入选中</button>
+        <button class="preview-btn save-all-btn" onclick="confirmSaveAll()">全部存入</button>
+      </div>
+      <div id="preview-list" class="preview-list"></div>
     </div>
   </div>
 </div>

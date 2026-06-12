@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS price_history (
     id INT AUTO_INCREMENT PRIMARY KEY,
     product_id INT NOT NULL,
     price DECIMAL(10,2) NOT NULL,
-    source VARCHAR(100) DEFAULT 'manmanbuy',
+    source VARCHAR(100) DEFAULT 'pconline',
     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
     INDEX idx_product_time (product_id, recorded_at)

@@ -6,17 +6,21 @@ export class ProductsController {
   constructor(private readonly service: ProductsService) {}
 
   @Get()
-  findAll(@Query('category') category?: string) {
-    return this.service.findAll(category);
+  findAll(@Query('category') category?: string, @Query('search') search?: string) {
+    return this.service.findAll(category, search);
   }
 
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.service.findOne(+id);
+    const numId = parseInt(id, 10);
+    if (isNaN(numId)) return null;
+    return this.service.findOne(numId);
   }
 
   @Get(':id/price-history')
   getPriceHistory(@Param('id') id: string, @Query('days') days?: string) {
-    return this.service.getPriceHistory(+id, +(days || 30));
+    const numId = parseInt(id, 10);
+    if (isNaN(numId)) return [];
+    return this.service.getPriceHistory(numId, days ? parseInt(days, 10) : 30);
   }
 }
