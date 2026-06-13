@@ -166,7 +166,7 @@ async function startCrawl() {
 
   const statusEl = document.getElementById('crawl-status');
   const btn = document.getElementById('btn-crawl');
-  statusEl.textContent = '正在爬取太平洋电脑网...';
+  statusEl.textContent = '正在爬取中关村在线...';
   statusEl.className = 'status loading';
   btn.disabled = true;
 

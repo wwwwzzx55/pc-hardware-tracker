@@ -32,7 +32,7 @@ def upsert_product(name, category, spec='', url='', image_url=''):
     finally:
         conn.close()
 
-def insert_price(product_id, price, source='pconline'):
+def insert_price(product_id, price, source='zol'):
     """记录一条价格，同一天已有记录则跳过"""
     conn = get_connection()
     try:
