@@ -4,3 +4,4 @@ __pycache__/
 *.pyc
 .env
 server/data/ai-settings.json
+.claude/settings.local.json

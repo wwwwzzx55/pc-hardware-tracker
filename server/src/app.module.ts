@@ -23,4 +23,4 @@ import { AiModule } from './ai/ai.module';
     AiModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }

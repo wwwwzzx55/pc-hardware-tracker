@@ -7,7 +7,6 @@ export class ProductsService {
   constructor(@InjectEntityManager() private em: EntityManager) {}
 
   async findAll(category?: string, search?: string, sort?: string) {
-    // 用 MAX(id) 而非 MAX(recorded_at) 避免同一秒内多条价格记录导致重复行
     let sql = `SELECT p.*, ph.price as latest_price, ph.recorded_at as updated_at
       FROM products p
       LEFT JOIN price_history ph ON ph.id = (
@@ -22,14 +21,13 @@ export class ProductsService {
       sql += ' AND p.name LIKE ?';
       params.push(`%${search.trim()}%`);
     }
-    // 动态排序
     switch (sort) {
       case 'time_asc':   sql += ' ORDER BY p.created_at ASC'; break;
       case 'name':       sql += ' ORDER BY p.name ASC'; break;
       case 'category':   sql += ' ORDER BY p.category ASC, p.name ASC'; break;
       case 'price_asc':  sql += ' ORDER BY latest_price ASC'; break;
       case 'price_desc': sql += ' ORDER BY latest_price DESC'; break;
-      default:           sql += ' ORDER BY p.created_at DESC'; break; // 时间最新（默认）
+      default:           sql += ' ORDER BY p.created_at DESC'; break;
     }
     return this.em.query(sql, params);
   }

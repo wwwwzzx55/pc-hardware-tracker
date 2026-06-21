@@ -56,7 +56,7 @@ class ZolSpider(scrapy.Spider):
         self.max_items = max(10, min(self.max_items, 30))
 
     def start_requests(self):
-        """Scrapy 入口 — 使用 requests 获取 HTML，然后手动调用 parse"""
+        """Scrapy 入口 — 使用 requests 获取 HTML，然后手动调用 _parse_page"""
         subcate_id = SUBCATE_IDS.get(self.category)
         if not subcate_id:
             self.logger.error(f'未知品类: {self.category}')

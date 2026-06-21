@@ -49,25 +49,29 @@ class PreviewPipeline:
 
 
 def run_spider(keyword, category, max_items, preview=False):
-    """使用 Scrapy CrawlerProcess 运行 Spider 并收集结果"""
-    from scrapy.crawler import CrawlerProcess
-    from scrapy.utils.project import get_project_settings
+    """直接调用 Spider + Pipeline，绕过 Scrapy CrawlerProcess
+
+    Python 3.14 + Scrapy 2.16 + Windows 下 CrawlerProcess/CrawlerRunner
+    的 asyncio reactor 存在阻塞/停止问题。由于 ZolSpider 内部使用
+    requests 库直接发 HTTP 请求（绕过 Scrapy 引擎），这里也不再依赖
+    Scrapy 的进程管理，手动驱动 Spider → Pipeline 数据流。
+    """
     from zol_scraper.spiders.zol import ZolSpider
 
     global _collected_results
     _collected_results = []
 
-    settings = get_project_settings()
-    settings.set('LOG_LEVEL', 'WARNING')
+    spider = ZolSpider(keyword=keyword, category=category, max_items=max_items)
 
     if preview:
-        # 预览模式：使用 PreviewPipeline 收集数据不写库
-        settings.set('ITEM_PIPELINES', {'__main__.PreviewPipeline': 300})
-    # 非预览模式使用 settings.py 中默认的 ProductPipeline（写库）
+        pipeline = PreviewPipeline()
+    else:
+        from zol_scraper.pipelines import ProductPipeline
+        pipeline = ProductPipeline()
+        pipeline.max_items = max_items
 
-    process = CrawlerProcess(settings)
-    process.crawl(ZolSpider, keyword=keyword, category=category, max_items=max_items)
-    process.start()
+    for item in spider.start_requests():
+        pipeline.process_item(item, spider)
 
     return _collected_results
 

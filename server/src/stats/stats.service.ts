@@ -16,7 +16,7 @@ export class StatsService {
       JOIN (
         SELECT product_id, price
         FROM price_history ph1
-        WHERE recorded_at = (SELECT MAX(recorded_at) FROM price_history ph2 WHERE ph2.product_id = ph1.product_id)
+        WHERE id = (SELECT MAX(id) FROM price_history ph2 WHERE ph2.product_id = ph1.product_id)
       ) latest ON p.id = latest.product_id
       GROUP BY category
     `);

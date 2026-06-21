@@ -86,6 +86,42 @@ async function fetchJSON(url) {
   return resp.json();
 }
 
+// ==================== 统计仪表盘 ====================
+async function loadDashboard() {
+  try {
+    const stats = await fetchJSON(`${API}/stats/overview`);
+    const categories = stats.categories || [];
+
+    // 汇总计算
+    const totalProducts = categories.reduce((s, c) => s + Number(c.product_count), 0);
+    const allAvgPrices = categories.map(c => Number(c.avg_price)).filter(p => p > 0);
+    const allMinPrices = categories.map(c => Number(c.min_price)).filter(p => p > 0);
+    const allMaxPrices = categories.map(c => Number(c.max_price)).filter(p => p > 0);
+
+    const overallAvg = allAvgPrices.length > 0
+      ? Math.round(allAvgPrices.reduce((a, b) => a + b, 0) / allAvgPrices.length) : 0;
+    const overallMin = allMinPrices.length > 0 ? Math.min(...allMinPrices) : 0;
+    const overallMax = allMaxPrices.length > 0 ? Math.max(...allMaxPrices) : 0;
+
+    // 更新仪表盘卡片
+    document.getElementById('stat-total').textContent = totalProducts + ' 个';
+    document.getElementById('stat-avg').textContent = '¥' + Number(overallAvg).toLocaleString();
+    document.getElementById('stat-min').textContent = '¥' + Number(overallMin).toLocaleString();
+    document.getElementById('stat-max').textContent = '¥' + Number(overallMax).toLocaleString();
+
+    // 缓存统计数据
+    cachedStatsData = stats;
+
+    // 如果当前在品类对比标签，刷新图表
+    if (currentChartTab === 'category') {
+      drawCategoryComparison(stats);
+    }
+  } catch (e) {
+    // 仪表盘数据加载失败不影响主流程
+    console.warn('仪表盘数据加载失败:', e);
+  }
+}
+
 async function loadProducts(category, search) {
   currentCategory = category;
   let url = `${API}/products`;
@@ -121,6 +157,13 @@ async function loadProducts(category, search) {
         </tr>
       `).join('');
     }
+
+    // 联动：加载仪表盘 + 缓存产品数据 + 刷新当前图表
+    cachedProducts = data;
+    loadDashboard();
+    if (currentChartTab === 'distribution') {
+      drawPriceDistribution(data);
+    }
   } catch (e) {
     document.getElementById('stats-bar').innerHTML = '<span style="color:#d63031">无法连接服务器，请确认后端已启动</span>';
   }
@@ -133,6 +176,8 @@ document.addEventListener('click', (e) => {
     // 高亮选中行
     document.querySelectorAll('#product-table tbody tr').forEach(r => r.classList.remove('selected'));
     tr.classList.add('selected');
+    // 自动切换到价格趋势标签
+    switchChartTab('trend');
     loadChart(tr.dataset.id, tr.dataset.name);
   }
 });

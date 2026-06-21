@@ -16,7 +16,7 @@ SUBCATE_IDS = {'CPU': '28', 'GPU': '6', 'RAM': '3', 'MB': '5', 'SSD': '626'}
 SEARCH_URL = 'https://detail.zol.com.cn/index.php'
 
 COOKIE = {
-    'ASP.NET_SessionId': '2cc10007c8f1e6cc68e92c4b105db4f2',
+    'ASP.NET_SessionId': '2cffce97ab369873a93470c5a0460c9d4',
 }
 
 

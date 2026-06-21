@@ -1,11 +1,10 @@
-/* AI 分析助手 — 完整版 */
+/* AI 分析助手 */
 
 // ==================== 基础状态 ====================
 let currentPromptId = 'query';
 let allPrompts = [];
-let editingPromptId = null;
 let aiSettings = null;
-let streamingEnabled = localStorage.getItem('ai-stream-enabled') !== 'false'; // 默认开启
+let streamingEnabled = localStorage.getItem('ai-stream-enabled') !== 'false';
 
 // ==================== 提示词标签栏 ====================
 async function loadPromptBar() {
@@ -23,21 +22,19 @@ function renderPromptBar() {
   const bar = document.getElementById('ai-prompt-bar');
   if (!bar) return;
 
-  const activeId = currentPromptId || (allPrompts.length > 0 ? allPrompts[0].id : 'query');
-  // Ensure selected prompt still exists
-  if (!allPrompts.find(p => p.id === activeId) && allPrompts.length > 0) {
+  // 确保当前选中的提示词还存在
+  if (!allPrompts.find(p => p.id === currentPromptId) && allPrompts.length > 0) {
     currentPromptId = allPrompts[0].id;
   }
 
   bar.innerHTML = allPrompts.map(p => `
     <div class="prompt-chip ${p.id === currentPromptId ? 'active' : ''}"
-         data-id="${p.id}" onclick="selectPrompt('${p.id}')" title="${escapeHtml(p.description || '')}">
+         data-id="${p.id}" onclick="selectPrompt('${p.id}')" title="${escapeHtml(p.name)}">
       <span class="chip-name">${escapeHtml(p.name)}</span>
-      <span class="chip-edit" onclick="event.stopPropagation();openPromptEditor('${p.id}')">✎</span>
     </div>
-  `).join('') + `<button class="chip-add" onclick="openPromptEditor()" title="新建提示词">+</button>`;
+  `).join('');
 
-  // Also update settings prompt list if open
+  // 同步刷新设置面板中的提示词列表
   if (document.getElementById('prompts-list')) {
     renderSettingsPrompts();
   }
@@ -49,83 +46,6 @@ function selectPrompt(id) {
   document.querySelectorAll('.prompt-chip').forEach(c => c.classList.remove('active'));
   const chip = document.querySelector(`.prompt-chip[data-id="${id}"]`);
   if (chip) chip.classList.add('active');
-}
-
-// ==================== 内联提示词编辑 ====================
-function openPromptEditor(id) {
-  editingPromptId = id || null;
-  const overlay = document.getElementById('prompt-editor-overlay');
-  if (!overlay) return;
-
-  document.getElementById('popup-title').textContent = id ? '编辑提示词' : '新建提示词';
-
-  // Delete button: visible when editing existing prompt
-  document.getElementById('btn-popup-delete').style.display = id ? '' : 'none';
-
-  if (id) {
-    const p = allPrompts.find(p => p.id === id);
-    document.getElementById('popup-name').value = p?.name || '';
-    document.getElementById('popup-desc').value = p?.description || '';
-    document.getElementById('popup-content').value = p?.content || '';
-  } else {
-    document.getElementById('popup-name').value = '';
-    document.getElementById('popup-desc').value = '';
-    document.getElementById('popup-content').value = '';
-  }
-
-  overlay.style.display = 'flex';
-  setTimeout(() => document.getElementById('popup-name').focus(), 150);
-}
-
-function closePromptEditor() {
-  editingPromptId = null;
-  const overlay = document.getElementById('prompt-editor-overlay');
-  if (overlay) overlay.style.display = 'none';
-}
-
-async function savePromptFromPopup() {
-  const name = document.getElementById('popup-name').value.trim();
-  const description = document.getElementById('popup-desc').value.trim();
-  const content = document.getElementById('popup-content').value.trim();
-
-  if (!name) { alert('请输入提示词名称'); return; }
-  if (!content) { alert('请输入提示词内容'); return; }
-
-  try {
-    if (editingPromptId) {
-      await fetch(`${API}/ai/prompts/${editingPromptId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, name, description })
-      });
-    } else {
-      const resp = await fetch(`${API}/ai/prompts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, content })
-      });
-      const data = await resp.json();
-      if (data.prompt) {
-        currentPromptId = data.prompt.id; // Auto-select newly created
-      }
-    }
-    closePromptEditor();
-    await loadPromptBar();
-  } catch (e) {
-    alert('保存失败: ' + e.message);
-  }
-}
-
-async function deletePromptFromPopup() {
-  if (!editingPromptId) return;
-  if (!confirm('确定删除该提示词？')) return;
-  try {
-    await fetch(`${API}/ai/prompts/${editingPromptId}`, { method: 'DELETE' });
-    closePromptEditor();
-    await loadPromptBar();
-  } catch (e) {
-    alert('删除失败: ' + e.message);
-  }
 }
 
 // ==================== 流式开关 ====================
@@ -153,15 +73,12 @@ async function sendMessage() {
   const message = input.value.trim();
   if (!message) return;
 
-  // 流式输出
   if (streamingEnabled) {
     return sendMessageStream(message);
   }
 
-  // 非流式 fallback
   const chatDiv = document.getElementById('ai-chat');
 
-  // 用户消息
   const userMsg = document.createElement('div');
   userMsg.className = 'msg user';
   userMsg.textContent = message;
@@ -169,12 +86,9 @@ async function sendMessage() {
   input.value = '';
   chatDiv.scrollTop = chatDiv.scrollHeight;
 
-  // AI 回复
-  const url = `${API}/ai/chat`;
   const body = { message, mode: currentPromptId };
-
   try {
-    const resp = await fetch(url, {
+    const resp = await fetch(`${API}/ai/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -200,14 +114,12 @@ async function sendMessageStream(message) {
   const input = document.getElementById('ai-input');
   const chatDiv = document.getElementById('ai-chat');
 
-  // 用户消息
   const userMsg = document.createElement('div');
   userMsg.className = 'msg user';
   userMsg.textContent = message;
   chatDiv.appendChild(userMsg);
   input.value = '';
 
-  // 构建 AI 消息容器
   const aiMsg = document.createElement('div');
   aiMsg.className = 'msg ai';
 
@@ -223,12 +135,10 @@ async function sendMessageStream(message) {
   `;
   aiMsg.appendChild(thinkingPanel);
 
-  // 内容区
   const msgContent = document.createElement('div');
   msgContent.className = 'msg-content';
   aiMsg.appendChild(msgContent);
 
-  // 光标
   const cursor = document.createElement('span');
   cursor.className = 'stream-cursor';
   cursor.innerHTML = '▌';
@@ -237,10 +147,7 @@ async function sendMessageStream(message) {
 
   chatDiv.appendChild(aiMsg);
 
-  // 滚动到最新的AI消息
-  const scrollToChat = () => {
-    chatDiv.scrollTop = chatDiv.scrollHeight;
-  };
+  const scrollToChat = () => { chatDiv.scrollTop = chatDiv.scrollHeight; };
   scrollToChat();
 
   try {
@@ -250,9 +157,7 @@ async function sendMessageStream(message) {
       body: JSON.stringify({ message, mode: currentPromptId }),
     });
 
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}`);
-    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -286,7 +191,6 @@ async function sendMessageStream(message) {
             const text = parsed.text || '';
 
             if (currentEvent === 'thinking' || (!currentEvent && text && !hasContent)) {
-              // 显示思考面板
               if (!hasThinking) {
                 thinkingPanel.style.display = 'block';
                 hasThinking = true;
@@ -297,9 +201,7 @@ async function sendMessageStream(message) {
                 thinkingContent.scrollTop = thinkingContent.scrollHeight;
               }
             } else if (currentEvent === 'content' || (!currentEvent && text && hasThinking)) {
-              // 显示内容
               if (!hasContent) {
-                // 首次出现内容时，自动折叠思考面板
                 thinkingPanel.classList.add('open');
                 setTimeout(() => { thinkingPanel.classList.remove('open'); }, 500);
                 cursor.style.display = 'inline';
@@ -322,7 +224,6 @@ async function sendMessageStream(message) {
       }
     }
 
-    // 流结束，隐藏光标
     cursor.style.display = 'none';
   } catch (e) {
     cursor.style.display = 'none';
@@ -340,7 +241,6 @@ function openSettings() {
 
 function closeSettings() {
   document.getElementById('settings-overlay').style.display = 'none';
-  cancelEditPrompt();
 }
 
 // 点击覆盖层关闭
@@ -374,13 +274,11 @@ async function loadSettings() {
 
 function renderSettings() {
   if (!aiSettings) return;
-  document.getElementById('set-provider').value = aiSettings.provider || 'openai';
   document.getElementById('set-baseUrl').value = aiSettings.baseUrl || '';
   document.getElementById('set-apiKey').value = aiSettings.apiKey || '';
   document.getElementById('set-temperature').value = aiSettings.temperature ?? 0.7;
   document.getElementById('set-maxTokens').value = aiSettings.maxTokens ?? 2048;
 
-  // 模型下拉
   const modelSelect = document.getElementById('set-model');
   if (aiSettings.model) {
     modelSelect.innerHTML = `<option value="${aiSettings.model}">${aiSettings.model}</option>`;
@@ -389,7 +287,6 @@ function renderSettings() {
 
 async function saveSettings() {
   const updates = {
-    provider: document.getElementById('set-provider').value,
     baseUrl: document.getElementById('set-baseUrl').value.trim(),
     apiKey: document.getElementById('set-apiKey').value.trim(),
     model: document.getElementById('set-model').value,
@@ -426,7 +323,6 @@ async function fetchModels() {
   btn.textContent = '⏳ 拉取中...';
   status.textContent = '';
 
-  const provider = document.getElementById('set-provider').value;
   const baseUrl = document.getElementById('set-baseUrl').value.trim();
   const apiKey = document.getElementById('set-apiKey').value.trim();
 
@@ -434,7 +330,7 @@ async function fetchModels() {
     const resp = await fetch(`${API}/ai/models`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, baseUrl, apiKey })
+      body: JSON.stringify({ baseUrl, apiKey })
     });
     const data = await resp.json();
 
@@ -455,16 +351,16 @@ async function fetchModels() {
   }
 }
 
-// ==================== 提示词管理（设置面板） ====================
+// ==================== 提示词列表（设置面板，只读） ====================
 async function loadPrompts() {
-  await loadPromptBar(); // 同步刷新标签栏和设置面板列表
+  await loadPromptBar();
 }
 
 function renderSettingsPrompts() {
   const list = document.getElementById('prompts-list');
   if (!list) return;
   if (allPrompts.length === 0) {
-    list.innerHTML = '<div class="prompts-info" style="padding:20px;text-align:center">暂无提示词模板</div>';
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#b2bec3">暂无提示词</div>';
     return;
   }
 
@@ -472,96 +368,9 @@ function renderSettingsPrompts() {
     <div class="prompt-card">
       <div class="prompt-card-header">
         <span class="prompt-card-name">${escapeHtml(p.name)}</span>
-        <span class="prompt-card-badge ${p.isPreset ? 'badge-preset' : 'badge-custom'}">${p.isPreset ? '预设' : '自定义'}</span>
-      </div>
-      <div class="prompt-card-desc">${escapeHtml(p.description || '')}</div>
-      <div class="prompt-card-preview" title="${escapeHtml(p.content)}">${escapeHtml(p.content?.slice(0, 80) || '')}${(p.content?.length || 0) > 80 ? '...' : ''}</div>
-      <div class="prompt-card-actions">
         ${p.id === currentPromptId ? '<span class="badge-active">✓ 当前使用</span>' : ''}
-        <button class="btn-sm-primary" onclick="editPrompt('${p.id}')">✏️ 编辑</button>
-        <button class="btn-sm-danger" onclick="deletePrompt('${p.id}')">🗑 删除</button>
       </div>
+      <div class="prompt-card-preview" title="${escapeHtml(p.content || '')}">${escapeHtml((p.content || '').slice(0, 80))}${(p.content || '').length > 80 ? '...' : ''}</div>
     </div>
   `).join('');
-}
-
-function editPrompt(id) {
-  const prompt = allPrompts.find(p => p.id === id);
-  if (!prompt) return;
-
-  editingPromptId = id;
-  document.getElementById('prompt-editor').style.display = 'block';
-  document.getElementById('prompt-editor-title').textContent = '编辑提示词';
-  document.getElementById('prompt-name').value = prompt.name;
-  document.getElementById('prompt-desc').value = prompt.description || '';
-  document.getElementById('prompt-content').value = prompt.content || '';
-
-  // Scroll to editor
-  document.getElementById('prompt-editor').scrollIntoView({ behavior: 'smooth' });
-}
-
-function showAddPrompt() {
-  editingPromptId = null;
-  document.getElementById('prompt-editor').style.display = 'block';
-  document.getElementById('prompt-editor-title').textContent = '新增提示词';
-  document.getElementById('prompt-name').value = '';
-  document.getElementById('prompt-desc').value = '';
-  document.getElementById('prompt-content').value = '';
-}
-
-function cancelEditPrompt() {
-  editingPromptId = null;
-  document.getElementById('prompt-editor').style.display = 'none';
-  document.getElementById('prompt-name').value = '';
-  document.getElementById('prompt-desc').value = '';
-  document.getElementById('prompt-content').value = '';
-}
-
-async function savePrompt() {
-  const name = document.getElementById('prompt-name').value.trim();
-  const description = document.getElementById('prompt-desc').value.trim();
-  const content = document.getElementById('prompt-content').value.trim();
-
-  if (!name) { alert('请输入提示词名称'); return; }
-  if (!content) { alert('请输入提示词内容'); return; }
-
-  try {
-    if (editingPromptId) {
-      await fetch(`${API}/ai/prompts/${editingPromptId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, name, description })
-      });
-    } else {
-      await fetch(`${API}/ai/prompts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, content })
-      });
-    }
-    cancelEditPrompt();
-    await loadPromptBar();
-  } catch (e) {
-    alert('保存失败: ' + e.message);
-  }
-}
-
-async function resetPrompt(id) {
-  if (!confirm('确定恢复该提示词为默认内容？')) return;
-  try {
-    await fetch(`${API}/ai/prompts/${id}/reset`, { method: 'POST' });
-    await loadPromptBar();
-  } catch (e) {
-    alert('恢复失败: ' + e.message);
-  }
-}
-
-async function deletePrompt(id) {
-  if (!confirm('确定删除该自定义提示词？')) return;
-  try {
-    await fetch(`${API}/ai/prompts/${id}`, { method: 'DELETE' });
-    await loadPromptBar();
-  } catch (e) {
-    alert('删除失败: ' + e.message);
-  }
 }

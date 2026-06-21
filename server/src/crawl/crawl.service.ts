@@ -23,7 +23,6 @@ export class CrawlService {
     const python = process.env.PYTHON_PATH
       || (process.platform === 'win32' ? 'py' : 'python3');
 
-    // 默认使用 --preview 模式，只爬取不写入数据库
     const proc = spawn(python, [this.crawlerPath, keyword, category, String(count), '--preview'], {
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
     });
